@@ -15,8 +15,9 @@ const UserLogin = ({ setIsLoggedIn }) => {
                 email,
                 password,
             });
+            console.log(response.data);
             localStorage.setItem("token", response.data.token);
-            setIsLoggedIn(true);
+            
             navigate("/userDashboard");
         } catch (err) {
             alert("Invalid credentials");
@@ -40,10 +41,9 @@ const UserLogin = ({ setIsLoggedIn }) => {
                     onChange={(e) => setPassword(e.target.value)}
                 />
                 <button type="submit">User Login</button>
-                
             </form>
-            <br/>
-            <button onClick={() => navigate('/register')}>New User Register</button>
+            <br />
+            <button onClick={() => navigate("/register")}>Register</button>
         </div>
     );
 };

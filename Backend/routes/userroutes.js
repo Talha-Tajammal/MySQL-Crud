@@ -1,87 +1,94 @@
-const express = require('express');
-const jwt = require('jsonwebtoken');
-const argon2 = require('argon2');
-const { v4: uuidv4 } = require('uuid');
-const db = require('../config/database');
-require('dotenv').config();
+const express = require("express");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
+const { v4: uuidv4 } = require("uuid");
+const db = require("../config/database");
 const router = express.Router();
+require("dotenv").config();
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const saltRounds = 10;
 
-router.post('/register', async (req, res) => {
-  const { name, email, password } = req.body;
+router.post("/register", async (req, res) => {
+    const { name, email, password } = req.body;
 
-  // Check if the email already exists
-  const checkEmailQuery = 'SELECT * FROM users WHERE email = ?';
-  db.query(checkEmailQuery, [email], async (err, results) => {
-    if (err) {
-      console.error('Error checking email in database:', err);
-      res.status(500).send('Server error');
-      return;
+    try {
+        const checkEmailQuery = "SELECT * FROM users WHERE email = ?";
+        db.query(checkEmailQuery, [email], async (err, results) => {
+            if (err) {
+                console.error("Error checking email in database:", err);
+                return res.status(500).json({ error: "Server error" });
+            }
+
+            if (results.length > 0) {
+                return res.status(400).json({ error: "Email already exists" });
+            }
+
+            const userId = uuidv4();
+            const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+            const insertUserQuery =
+                "INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)";
+            db.query(
+                insertUserQuery,
+                [userId, name, email, hashedPassword],
+                (err, result) => {
+                    if (err) {
+                        console.error(
+                            "Error inserting user into database:",
+                            err
+                        );
+                        return res.status(500).json({ error: "Server error" });
+                    }
+
+                    const token = jwt.sign({ id: userId }, JWT_SECRET, {
+                        expiresIn: "1d",
+                    });
+                    res.status(201).json({ token });
+                    console.log("User registered successfully: ", userId);
+                    console.log("User registered successfully: ", token);
+                }
+            );
+        });
+    } catch (error) {
+        console.error("Registration error:", error);
+        res.status(500).json({ error: "Registration failed" });
     }
-
-    if (results.length > 0) {
-      // Email already exists
-      res.status(400).send('Email already exists');
-      return;
-    }
-
-    // Generate a unique ID for the user
-    const userId = uuidv4();
-
-    // Hash the password using Argon2
-    const hashedPassword = await argon2.hash(password);
-
-    // Insert the new user into the database
-    const insertUserQuery = 'INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)';
-    db.query(insertUserQuery, [userId, name, email, password], (err, result) => {
-      if (err) {
-        console.error('Error inserting user into database:', err);
-        res.status(500).send('Server error');
-        return;
-      }
-      const token = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '1d' });
-      res.json({ token });
-      console.log('User registered successfully: ', token);
-    });
-  });
 });
 
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+router.post("/login", async (req, res) => {
+    const { email, password } = req.body;
 
-  // Check if the user exists
-  const checkUserQuery = 'SELECT * FROM users WHERE email = ?';
-  db.query(checkUserQuery, [email], async (err, results) => {
-    if (err) {
-      console.error('Error checking user in database:', err);
-      res.status(500).send('Server error');
-      return;
+    try {
+        const getUserQuery = "SELECT * FROM users WHERE email = ?";
+        db.query(getUserQuery, [email], async (err, results) => {
+            if (err) {
+                console.error("Database error:", err);
+                return res.status(500).json({ error: "Server error" });
+            }
+
+            if (results.length === 0) {
+                return res.status(401).json({ error: "Invalid credentials" });
+            }
+
+            const user = results[0];
+            console.log(user);
+
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (!isMatch) {
+                return res.status(401).json({ error: "Invalid credentials" });
+            }
+
+            const token = jwt.sign({ id: user.id }, JWT_SECRET, {
+                expiresIn: "1d",
+            });
+            res.status(201).json({ token });
+            console.log("User logged in successfully: ", token);
+        });
+    } catch (error) {
+        console.error("Login error:", error);
+        res.status(500).json({ error: "Login failed" });
     }
-
-    if (results.length === 0) {
-      // Invalid credentials
-      console.log('No user found with this email');
-      res.status(400).send('Invalid credentials');
-      return;
-    }
-
-    // User exists, compare the password
-    const user = results[0];
-    console.log('User found:', user);
-    const isPasswordValid = await (user.password === password);
-    console.log('Password comparison result:', isPasswordValid);
-    if (!isPasswordValid) {
-      console.log('Password is invalid');
-      res.status(400).send('Invalid credentials');
-      return;
-    }
-
-    // Generate a token
-    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '1d' });
-    res.json({ token });
-    console.log('User logged in successfully: ', token);
-  });
 });
 
 module.exports = router;
